@@ -1,0 +1,17 @@
+{
+ "site": "مهندس دولة",
+ "categories": [
+  {
+   "id": "cours",
+   "name": "COURS"
+  },
+  {
+   "id": "td",
+   "name": "TD"
+  },
+  {
+   "id": "tp",
+   "name": "TP"
+  }
+ ]
+}

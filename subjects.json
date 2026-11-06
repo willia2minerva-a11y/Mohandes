@@ -1,0 +1,30 @@
+[
+ {
+  "slug": "analyse",
+  "name": "تحليل 1"
+ },
+ {
+  "slug": "algebre",
+  "name": "جبر 1"
+ },
+ {
+  "slug": "physique",
+  "name": "فيزياء 1"
+ },
+ {
+  "slug": "chimie",
+  "name": "كيمياء 1"
+ },
+ {
+  "slug": "statistiques",
+  "name": "إحصاء"
+ },
+ {
+  "slug": "histoire",
+  "name": "التاريخ الجزائري"
+ },
+ {
+  "slug": "ethique",
+  "name": "أخلاقيات المهنة"
+ }
+]
