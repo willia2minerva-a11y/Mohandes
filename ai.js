@@ -3,12 +3,17 @@ const fs=require('fs'),path=require('path'),S=require('./store');
 // تنظيف القيم: يزيل المسافات والرموز الخفية (RLM/ZWSP...) والاقتباس، ويقبل الفاصلة العربية والسطر الجديد
 const clean=s=>String(s||'').replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]/g,'').trim();
 const list=s=>clean(s).split(/[,\n;،]+/).map(x=>clean(x).replace(/^["'`]+|["'`]+$/g,'')).filter(Boolean);
-const KEYS=list(process.env.GEMINI_API_KEYS||process.env.GEMINI_API_KEY).map(k=>k.replace(/[^\w-]/g,'')).filter(Boolean);
+// مهم: نسمح بالنقطة (.) لأن المفاتيح الجديدة تبدأ بـ AQ. ، ونسمح أيضًا بالشرطة والشرطة السفلية
+const normKey=k=>String(k||'').trim().replace(/^["'`]+|["'`]+$/g,'').replace(/[^\w.\-]/g,'');
+const KEYS=list(process.env.GEMINI_API_KEYS||process.env.GEMINI_API_KEY).map(normKey).filter(Boolean);
 const MODELS=list(process.env.GEMINI_MODELS||process.env.GEMINI_MODEL||'gemini-flash-latest').map(m=>m.replace(/^models\//,'').replace(/[^\w.\-]/g,'')).filter(Boolean);
 const BASE=process.env.GEMINI_BASE||'https://generativelanguage.googleapis.com';
 let rr=0,preferred=null,lastModel='',lastError='',auto={t:0,list:[]};const bad=new Map();
 console.log('نماذج Gemini:',MODELS.join(' , '));
+// الترويسة: نرسل المفتاح كما هو دون تعديل، وندعم أيضًا المفاتيح القديمة عبر query إن لزم
 const H=k=>({'Content-Type':'application/json','x-goog-api-key':k});
+// بعض المفاتيح الجديدة قد لا تُقبل في الترويسة، لذا نجرب أيضًا query param
+const urlFor=(model,k,useQuery)=>`${BASE}/v1beta/models/${model}:generateContent${useQuery?`?key=${encodeURIComponent(k)}`:''}`;
 // يكتشف أحدث نماذج flash المتاحة لمفاتيحك (يُستعمل تلقائيًا إن لم يوجد النموذج المضبوط)
 async function listModels(k){const r=await fetch(`${BASE}/v1beta/models?pageSize=200`,{headers:H(k),signal:AbortSignal.timeout(20000)}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(r.status+' '+(j.error?.message||''));return(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace(/^models\//,''))}
 const ver=n=>parseFloat((n.match(/^gemini-([\d.]+)/)||[])[1])||0;
@@ -17,12 +22,18 @@ async function discover(){if(Date.now()-auto.t<3600e3&&auto.list.length)return a
 async function attempt(models,body){let last='لا توجد مفاتيح: اضبط GEMINI_API_KEYS',modelOnly=models.length>0&&KEYS.length>0;
  for(const model of models){let ks=KEYS.filter(k=>(bad.get(k)||0)<=Date.now());if(!ks.length)ks=KEYS;
   for(let i=0;i<ks.length;i++){const k=ks[(rr+i)%ks.length];
-   try{const r=await fetch(`${BASE}/v1beta/models/${model}:generateContent`,{method:'POST',headers:H(k),body:JSON.stringify(body),signal:AbortSignal.timeout(120000)}),j=await r.json().catch(()=>({}));
-    if(r.ok){const t=(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');if(t){rr=(rr+i+1)%ks.length;lastModel=model;lastError='';return t}last=`[${model}] رد فارغ`;modelOnly=false;continue}
-    const m=j.error?.message||'';last=`[${model}] ${r.status} ${m}`.replace(/\s+/g,' ').slice(0,260);
-    if(r.status===404||(r.status===400&&/model/i.test(m))){console.log('نموذج غير صالح:',last);break}
-    modelOnly=false;bad.set(k,Date.now()+(r.status===429?60e3:(r.status===401||r.status===403||(r.status===400&&/api key/i.test(m)))?3600e3:10e3));console.log('مفتاح تعطّل #'+(KEYS.indexOf(k)+1),last)}
-   catch(e){last=`[${model}] ${e.message}`;modelOnly=false;bad.set(k,Date.now()+10e3)}}}
+   // نجرب أولًا الترويسة، وإن فشل بـ 400/401/403 نجرب query param
+   for(const useQuery of [false,true]){
+    try{const r=await fetch(urlFor(model,k,useQuery),{method:'POST',headers:useQuery?{'Content-Type':'application/json'}:H(k),body:JSON.stringify(body),signal:AbortSignal.timeout(120000)}),j=await r.json().catch(()=>({}));
+     if(r.ok){const t=(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');if(t){rr=(rr+i+1)%ks.length;lastModel=model;lastError='';return t}last=`[${model}] رد فارغ`;modelOnly=false;break}
+     const m=j.error?.message||'';last=`[${model}] ${r.status} ${m}`.replace(/\s+/g,' ').slice(0,260);
+     if(r.status===404||(r.status===400&&/model/i.test(m))){console.log('نموذج غير صالح:',last);break}
+     // إن كان الخطأ بسبب المفتاح، جرّب query param مرة واحدة، وإلا فعّل الحظر
+     if(!useQuery&&/api key|auth|permission|invalid/i.test(m)){continue}
+     modelOnly=false;bad.set(k,Date.now()+(r.status===429?60e3:(r.status===401||r.status===403||(r.status===400&&/api key/i.test(m)))?3600e3:10e3));console.log('مفتاح تعطّل #'+(KEYS.indexOf(k)+1),last);break}
+    catch(e){last=`[${model}] ${e.message}`;modelOnly=false;if(!useQuery)continue;bad.set(k,Date.now()+10e3);break}
+   }
+  }}
  const e=new Error(last);e.modelOnly=modelOnly;throw e}
 async function gemini(body){
  try{return await attempt([...(preferred?[preferred]:[]),...MODELS.filter(m=>m!==preferred)],body)}
@@ -32,7 +43,7 @@ async function gemini(body){
 // فحص يدوي من لوحة الأدمن: يعرض لكل مفتاح حالته والنماذج المتاحة له
 async function check(){const out=[];for(let i=0;i<KEYS.length;i++){const k=KEYS[i],o={n:i+1,models:[],test:''};
   try{const all=await listModels(k);o.models=all.filter(n=>/^gemini-[\d.]+-(flash|pro)(-lite)?(-preview)?$/.test(n)).sort((a,b)=>ver(b)-ver(a)).slice(0,8);o.list='ok'}catch(e){o.list=e.message.slice(0,160)}
-  for(const m of MODELS.slice(0,2)){try{const r=await fetch(`${BASE}/v1beta/models/${m}:generateContent`,{method:'POST',headers:H(k),body:JSON.stringify({contents:[{parts:[{text:'قل: تم'}]}]}),signal:AbortSignal.timeout(30000)}),j=await r.json().catch(()=>({}));o.test+=`${m}: ${r.ok?'يعمل ✓':r.status+' '+(j.error?.message||'').replace(/\s+/g,' ').slice(0,140)}\n`}catch(e){o.test+=`${m}: ${e.message}\n`}}
+  for(const m of MODELS.slice(0,2)){try{const r=await fetch(urlFor(m,k,false),{method:'POST',headers:H(k),body:JSON.stringify({contents:[{parts:[{text:'قل: تم'}]}]}),signal:AbortSignal.timeout(30000)}),j=await r.json().catch(()=>({}));o.test+=`${m}: ${r.ok?'يعمل ✓':r.status+' '+(j.error?.message||'').replace(/\s+/g,' ').slice(0,140)}\n`}catch(e){o.test+=`${m}: ${e.message}\n`}}
   out.push(o)}return{models:MODELS,preferred,auto:auto.list,keys:out}}
 const SYS=`أنت معلم صبور ومتحمّس لطلبة السنة الأولى هندسة مدنية (الجزائر)، وهدفك أن يفهم حتى أضعف طالب في القسم.
 أسلوب الجواب (اختصر الأقسام إن كان السؤال بسيطًا جدًا):
