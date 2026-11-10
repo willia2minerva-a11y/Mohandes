@@ -38,6 +38,25 @@ const A={
  'subject-move':b=>{need(b);const a=S.subjects(),i=a.findIndex(x=>x.slug===b.subject),j=i+(b.dir<0?-1:1);if(j>=0&&j<a.length){[a[i],a[j]]=[a[j],a[i]];S.saveSubjects(a)}return{}},
  'settings-save':b=>{const seen=new Set(),cats=(Array.isArray(b.categories)?b.categories:[]).map(c=>({id:String(c.id||'c'+id()).replace(/[^\w-]/g,'').slice(0,30)||'c'+id(),name:String(c.name||'').trim().slice(0,30)})).filter(c=>c.name&&!seen.has(c.id)&&seen.add(c.id));S.saveSettings({...S.settings(),categories:cats});return{}},
 
+ 'exercise-save':b=>{
+  const list=S.exercises(),title=String(b.title||'').trim().slice(0,120);
+  if(!title)throw new Error('العنوان مطلوب');
+  const ex={id:b.id||id(),subject:String(b.subject||''),title,body:String(b.body||'').slice(0,20000),due:String(b.due||''),remind:!!b.remind,created:Date.now()};
+  const i=list.findIndex(x=>x.id===ex.id);
+  if(i>=0)list[i]=ex;else list.unshift(ex);
+  S.saveExercises(list);return{id:ex.id};
+ },
+ 'exercise-delete':b=>{S.saveExercises(S.exercises().filter(x=>x.id!==b.id));return{}},
+ 'agenda-save':b=>{
+  const list=S.agenda(),title=String(b.title||'').trim().slice(0,120);
+  if(!title)throw new Error('العنوان مطلوب');
+  const ev={id:b.id||id(),title,date:String(b.date||''),type:String(b.type||'other').slice(0,20),note:String(b.note||'').slice(0,500)};
+  const i=list.findIndex(x=>x.id===ev.id);
+  if(i>=0)list[i]=ev;else list.unshift(ev);
+  S.saveAgenda(list);return{id:ev.id};
+ },
+ 'agenda-delete':b=>{S.saveAgenda(S.agenda().filter(x=>x.id!==b.id));return{}},
+
  'ai-check':()=>AI.check(),
  'fetch-url':async b=>{let u;try{u=new URL(b.url)}catch{throw new Error('رابط غير صالح')}const h=u.hostname;
   if(!/^https?:$/.test(u.protocol)||(!process.env.FETCH_ALLOW_LOCAL&&(/^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[)/i.test(h)||/^172\.(1[6-9]|2\d|3[01])\./.test(h)||!h.includes('.'))))throw new Error('رابط غير مسموح');
