@@ -16,7 +16,7 @@ async function chat(req,res){let q;try{q=await body(req)}catch{return send(res,4
  if(used>=CAP)return send(res,429,{answer:'بلغ المعلم حدّه اليومي. جرّب غدًا.'});
  if(rate(hits,ipOf(req),LIMIT,3600e3))return send(res,429,{answer:'وصلت للحد الأقصى من الأسئلة في هذه الساعة، حاول لاحقًا.'});
  try{const a=await AI.chat(String(q.subject||''),q.question,q.history,q.level);if(a===null)return send(res,404,{answer:'مادة غير معروفة.'});used++;send(res,200,{answer:a})}
- catch(e){console.log('فشل الطلب:',e.message);send(res,502,{answer:'تعذّر الاتصال بالمعلم الآن (كل المفاتيح مشغولة أو معطّلة). حاول بعد دقيقة.'})}}
+ catch(e){console.log('فشل الطلب:',e.message);send(res,502,{answer:'تعذّر الاتصال بالمعلم الآن. حاول بعد دقيقة.'})}}
 // ---------- لوحة الأدمن ----------
 let chain=Promise.resolve();const lock=fn=>{const r=chain.then(fn);chain=r.catch(()=>{});return r};
 const okSub=s=>S.subjects().some(x=>x.slug===s),okFile=f=>typeof f==='string'&&f&&path.basename(f)===f&&f[0]!=='.',KIND=k=>k==='images'||k==='texts';
@@ -38,23 +38,9 @@ const A={
  'subject-move':b=>{need(b);const a=S.subjects(),i=a.findIndex(x=>x.slug===b.subject),j=i+(b.dir<0?-1:1);if(j>=0&&j<a.length){[a[i],a[j]]=[a[j],a[i]];S.saveSubjects(a)}return{}},
  'settings-save':b=>{const seen=new Set(),cats=(Array.isArray(b.categories)?b.categories:[]).map(c=>({id:String(c.id||'c'+id()).replace(/[^\w-]/g,'').slice(0,30)||'c'+id(),name:String(c.name||'').trim().slice(0,30)})).filter(c=>c.name&&!seen.has(c.id)&&seen.add(c.id));S.saveSettings({...S.settings(),categories:cats});return{}},
 
- 'exercise-save':b=>{
-  const list=S.exercises(),title=String(b.title||'').trim().slice(0,120);
-  if(!title)throw new Error('العنوان مطلوب');
-  const ex={id:b.id||id(),subject:String(b.subject||''),title,body:String(b.body||'').slice(0,20000),due:String(b.due||''),remind:!!b.remind,created:Date.now()};
-  const i=list.findIndex(x=>x.id===ex.id);
-  if(i>=0)list[i]=ex;else list.unshift(ex);
-  S.saveExercises(list);return{id:ex.id};
- },
+ 'exercise-save':b=>{const list=S.exercises(),title=String(b.title||'').trim().slice(0,120);if(!title)throw new Error('العنوان مطلوب');const ex={id:b.id||id(),subject:String(b.subject||''),title,body:String(b.body||'').slice(0,20000),due:String(b.due||''),remind:!!b.remind,created:Date.now()};const i=list.findIndex(x=>x.id===ex.id);if(i>=0)list[i]=ex;else list.unshift(ex);S.saveExercises(list);return{id:ex.id}},
  'exercise-delete':b=>{S.saveExercises(S.exercises().filter(x=>x.id!==b.id));return{}},
- 'agenda-save':b=>{
-  const list=S.agenda(),title=String(b.title||'').trim().slice(0,120);
-  if(!title)throw new Error('العنوان مطلوب');
-  const ev={id:b.id||id(),title,date:String(b.date||''),type:String(b.type||'other').slice(0,20),note:String(b.note||'').slice(0,500)};
-  const i=list.findIndex(x=>x.id===ev.id);
-  if(i>=0)list[i]=ev;else list.unshift(ev);
-  S.saveAgenda(list);return{id:ev.id};
- },
+ 'agenda-save':b=>{const list=S.agenda(),title=String(b.title||'').trim().slice(0,120);if(!title)throw new Error('العنوان مطلوب');const ev={id:b.id||id(),title,date:String(b.date||''),type:String(b.type||'other').slice(0,20),note:String(b.note||'').slice(0,500)};const i=list.findIndex(x=>x.id===ev.id);if(i>=0)list[i]=ev;else list.unshift(ev);S.saveAgenda(list);return{id:ev.id}},
  'agenda-delete':b=>{S.saveAgenda(S.agenda().filter(x=>x.id!==b.id));return{}},
 
  'ai-check':()=>AI.check(),
@@ -71,7 +57,7 @@ async function admin(req,res,p){
  if(p==='logout')return send(res,200,{ok:1},{'Set-Cookie':'adm=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
  if(!isAdmin(req))return send(res,401,{error:'يلزم تسجيل الدخول.'});if(req.method==='POST'&&req.headers['x-admin']!=='1')return send(res,403,{error:'طلب مرفوض.'});
  if(!A[p])return send(res,404,{error:'غير موجود'});let b={};if(req.method==='POST'){try{b=await body(req,20e6)}catch{return send(res,413,{error:'الطلب كبير جدًا.'})}}
- try{if(!['manifest','flush','fetch-url','ai-check'].includes(p)&&!S.writable())throw new Error('قاعدة MongoDB غير متصلة الآن، لا يمكن الحفظ. انتظر قليلًا ثم أعد المحاولة.');send(res,200,await lock(()=>A[p](b)))}catch(e){send(res,400,{error:e.message})}}
+ try{if(!['manifest','flush','fetch-url','ai-check'].includes(p)&&!S.writable())throw new Error('قاعدة MongoDB غير متصلة الآن، لا يمكن الحفظ.');send(res,200,await lock(()=>A[p](b)))}catch(e){send(res,400,{error:e.message})}}
 const MIME={'.html':'text/html; charset=utf-8','.json':'application/json; charset=utf-8','.txt':'text/plain; charset=utf-8','.md':'text/plain; charset=utf-8','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.pdf':'application/pdf'};
 const safe=p=>{const f=path.resolve(ROOT,p);return f.startsWith(path.join(ROOT,'content')+path.sep)?f:null};
 http.createServer(async(req,res)=>{try{const u=decodeURIComponent(req.url.split('?')[0]);
@@ -80,5 +66,5 @@ http.createServer(async(req,res)=>{try{const u=decodeURIComponent(req.url.split(
  const f=u==='/'||u==='/index.html'?path.join(ROOT,'index.html'):u==='/admin'||u==='/admin.html'?path.join(ROOT,'admin.html'):u.startsWith('/content/')?safe(u.slice(1)):null;
  if(!f||!fs.existsSync(f)||!fs.statSync(f).isFile()){res.writeHead(404);return res.end('404')}
  res.writeHead(200,{'Content-Type':MIME[path.extname(f).toLowerCase()]||'application/octet-stream','Cache-Control':/\.(jpe?g|png|webp|pdf)$/i.test(f)?'public, max-age=86400':'no-cache'});fs.createReadStream(f).pipe(res)}catch(e){res.writeHead(500);res.end('error')}
-}).listen(PORT,()=>console.log(`جاهز على المنفذ ${PORT} · مفاتيح Gemini: ${AI.keys} · الأدمن: ${PASS?'مفعّل':'غير مفعّل (اضبط ADMIN_PASSWORD)'} · التخزين: ${S.status().backend}`));S.init();
+}).listen(PORT,()=>console.log(`جاهز على المنفذ ${PORT} · Gemini: ${AI.keys} · الأدمن: ${PASS?'مفعّل':'غير مفعّل'} · التخزين: ${S.status().backend}`));S.init();
 process.on('SIGTERM',async()=>{try{await S.flushNow()}catch{}process.exit(0)});
