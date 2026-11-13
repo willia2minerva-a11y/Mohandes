@@ -47,10 +47,35 @@ const meta=s=>{const m=rd(`content/${s}/meta.json`,{});return{items:m.items||{},
 const wc=new Map(),words=f=>{try{const k=f+fs.statSync(f).mtimeMs;if(!wc.has(k))wc.set(k,fs.readFileSync(f,'utf8').split(/\s+/).filter(Boolean).length);return wc.get(k)}catch{return 0}};
 const files=(s,kind)=>ls(path.join(ROOT,'content',s,kind)).filter(f=>(kind=='images'?IMG:TXT).test(f));
 function ordered(s,kind,fl=files(s,kind)){const o=meta(s).order[kind]||[];return[...o.filter(f=>fl.includes(f)),...fl.filter(f=>!o.includes(f)).sort()]}
+
+// ---------- ترتيب ذكي حسب التصنيف والترقيم ----------
+// قواعد: COURS أولًا، ثم TD، ثم TP، ثم الباقي. داخل كل مجموعة: رقم طبيعي (2 قبل 10).
+const CAT_ORDER={cours:0,td:1,tp:2,core:3};
+function sortByCategory(items){
+  return items.slice().sort((a,b)=>{
+    const ca=CAT_ORDER[a.cat]??9, cb=CAT_ORDER[b.cat]??9;
+    if(ca!==cb)return ca-cb;
+    // داخل نفس التصنيف: رقم طبيعي من الفصل أو العنوان
+    const na=(a.chapter||'').match(/\d+/), nb=(b.chapter||'').match(/\d+/);
+    if(na&&nb&&+na[0]!==+nb[0])return +na[0]-+nb[0];
+    return 0;
+  });
+}
+// ترقيم متسلسل داخل كل مجموعة تصنيف: COURS 1,2,3 · TD 1,2,3 · TP 1,2,3 ...
+function numberByCategory(items){
+  const counters={};
+  return items.map(it=>{
+    const k=it.cat||'_';
+    counters[k]=(counters[k]||0)+1;
+    const label=it.cat?((CAT_ORDER[it.cat]!==undefined?(it.cat.toUpperCase()):(it.cat))+' '+counters[k]):counters[k];
+    return{...it,seq:counters[k],label};
+  });
+}
+
 function manifest(admin){const S=settings();return{site:S.site,categories:S.categories,exercises:admin?exercises():exercises().filter(x=>!x.hidden),agenda:agenda(),subjects:subjects().map(s=>{const d=`content/${s.slug}`,m=meta(s.slug),ex=p=>fs.existsSync(path.join(ROOT,p));
  const base=(kind,f)=>{const it=m.items[kind+'/'+f]||{};return{file:f,title:it.title||'',cat:it.cat||'',chapter:it.chapter||'',hidden:!!it.hidden}};
- const images=ordered(s.slug,'images').map(f=>{const stem=f.replace(/\.[^.]+$/,'');return{...base('images',f),src:`${d}/images/${f}`,thumb:ex(`${d}/thumbs/${f}`)?`${d}/thumbs/${f}`:`${d}/images/${f}`,ocr:ex(`${d}/ocr/${stem}.txt`)?`${d}/ocr/${stem}.txt`:null}});
- const texts=ordered(s.slug,'texts').map(f=>{const b=base('texts',f),pdf=/\.pdf$/i.test(f);return{...b,name:f,file:`${d}/texts/${f}`,title:b.title||f.replace(/\.[^.]+$/,'').replace(/_/g,' ').trim(),pdf,words:pdf?0:words(path.join(ROOT,d,'texts',f))}});
+ const images=numberByCategory(sortByCategory(ordered(s.slug,'images').map(f=>{const stem=f.replace(/\.[^.]+$/,'');return{...base('images',f),src:`${d}/images/${f}`,thumb:ex(`${d}/thumbs/${f}`)?`${d}/thumbs/${f}`:`${d}/images/${f}`,ocr:ex(`${d}/ocr/${stem}.txt`)?`${d}/ocr/${stem}.txt`:null}})));
+ const texts=numberByCategory(sortByCategory(ordered(s.slug,'texts').map(f=>{const b=base('texts',f),pdf=/\.pdf$/i.test(f);return{...b,name:f,file:`${d}/texts/${f}`,title:b.title||f.replace(/\.[^.]+$/,'').replace(/_/g,' ').trim(),pdf,words:pdf?0:words(path.join(ROOT,d,'texts',f))}})));
  return{slug:s.slug,name:s.name,images:admin?images:images.filter(i=>!i.hidden),texts:admin?texts:texts.filter(t=>!t.hidden)}})}}
 function addItem(s,kind,f,props){const m=meta(s);m.items[kind+'/'+f]=props;m.order[kind]=[...ordered(s,kind,files(s,kind).filter(x=>x!==f)),f];saveMeta(s,m)}
 function setItem(s,kind,f,patch){const m=meta(s);m.items[kind+'/'+f]={...(m.items[kind+'/'+f]||{}),...patch};saveMeta(s,m)}
